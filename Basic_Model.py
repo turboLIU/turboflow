@@ -3,6 +3,7 @@ from tensorflow.python.framework import graph_io
 import sys
 import numpy as np
 import json
+import os
 
 class basic_network(object):
     def __init__(self, cfg):
@@ -570,6 +571,11 @@ class TurboBASE(object):
         self.params_count = 0
         self.gpu_count = 0
 
+    def get_latest_count(self, path):
+        names = os.listdir(path)
+        counts = [int(name.split(".")[0].split("-")[-1]) for name in names]
+        return max(counts)
+
     def load_TurboLIU_Params(self, jsonParams):
         f = open(jsonParams, "r")
         Params = json.load(f)
@@ -580,12 +586,20 @@ class TurboBASE(object):
         _, h, w, c = x.get_shape().as_list()
         self.gpu_count += h * w * c
 
+    def _variable_on_cpu(self, shape, weight_decay=0.995, l2_loss=True, name="var"):
+        with tf.device("/cpu:0"):
+            w = tf.compat.v1.get_variable(shape=shape, initializer=tf.random_normal_initializer(0.0, 0.01),
+                                          dtype=tf.float32, name=name)
+            # tf.summary.histogram("%s_w" % name, w)
+            if l2_loss:
+                tf.compat.v1.add_to_collection(name="weights_l2_loss", value=(1 - weight_decay) * tf.nn.l2_loss(w))
+        return w
 
     def load_param(self, name, l2_loss=False):
         value = self.TurboParams[name]["value"]
         v = tf.compat.v1.Variable(initial_value=value, trainable=True, name=name)
         if l2_loss:
-            tf.compat.v1.add_to_collection(name="weights_l2_loss", value=(1 - self.weight_decay) * tf.nn.l2_loss(w))
+            tf.compat.v1.add_to_collection(name="weights_l2_loss", value=(1 - self.weight_decay) * tf.nn.l2_loss(v))
         return v
 
     def get_weight(self, *args, **kwargs):
@@ -935,6 +949,7 @@ class TurboBASE(object):
         new_params = {}
         for name, param in params.items():
             new_param = {}
+            name = name.split(":")[0]
             value = np.array(param["value"], dtype=np.float32)
             shape = param["shape"]
             # value = value.reshape(shape)
@@ -1088,7 +1103,7 @@ class TurboBASE(object):
         for var in vars_list:
             weight = dict()
             value = sess.run(var)
-            print(var.name, var.shape)
+            # print(var.name, var.shape)
             # weight["node_name"] = var.name
             weight["value"] = value.tolist()
             weight["shape"] = list(value.shape)
