@@ -258,7 +258,8 @@ class basic_network(object):
         return x
 
     def DeConvBlock(self, x, in_channels, out_channels, kernel_size, stride=1, name="DeConvBlock",
-                    BN=True, use_bias=True, padding="VALID", act_type="relu"):
+                    BN=True, use_bias=True, padding="VALID", act_type="relu",
+                    FUSE_BN=False):
         b, h, w, c = x.get_shape().as_list()
         out_shape = [b, h * self.scale, w * self.scale, out_channels]
 
@@ -562,12 +563,16 @@ class TurboBASE(object):
             # self.scale = 2
             self.c_dim = 3
             self.load_premodel = False
+            self.weight_decay = 0.995
+            self.FUSE_BN=False
         else:
             self.cfg = cfg
             self.BN_type = self.cfg.BN_type
             self.istrain = self.cfg.istrain
             self.c_dim = self.cfg.c_dim
             self.load_premodel = self.cfg.load_premodel
+            self.weight_decay = self.cfg.weight_decay
+            self.FUSE_BN = False
         self.params_count = 0
         self.gpu_count = 0
 
@@ -597,7 +602,8 @@ class TurboBASE(object):
 
     def load_param(self, name, l2_loss=False):
         value = self.TurboParams[name]["value"]
-        v = tf.compat.v1.Variable(initial_value=value, trainable=True, name=name)
+        with tf.device("/cpu:0"):
+            v = tf.compat.v1.Variable(initial_value=value, trainable=True, name=name)
         if l2_loss:
             tf.compat.v1.add_to_collection(name="weights_l2_loss", value=(1 - self.weight_decay) * tf.nn.l2_loss(v))
         return v
@@ -687,12 +693,13 @@ class TurboBASE(object):
             pop_mean = self.load_param("%s_pop_mean"%name)
             pop_variance = self.load_param("%s_pop_variance"%name)
         else:
-            gama = tf.compat.v1.get_variable(shape=c, initializer=tf.ones_initializer, trainable=True, name="%s_gama" % name)
-            beta = tf.compat.v1.get_variable(shape=c, initializer=tf.zeros_initializer, trainable=True, name="%s_beta" % name)
-            pop_mean = tf.compat.v1.get_variable(shape=c, initializer=tf.zeros_initializer, trainable=True,
-                                                 name="%s_pop_mean" % name)
-            pop_variance = tf.compat.v1.get_variable(shape=c, initializer=tf.ones_initializer, trainable=True,
-                                                     name="%s_pop_variance" % name)
+            with tf.device("/cpu:0"):
+                gama = tf.compat.v1.get_variable(shape=c, initializer=tf.ones_initializer, trainable=True, name="%s_gama" % name)
+                beta = tf.compat.v1.get_variable(shape=c, initializer=tf.zeros_initializer, trainable=True, name="%s_beta" % name)
+                pop_mean = tf.compat.v1.get_variable(shape=c, initializer=tf.zeros_initializer, trainable=True,
+                                                     name="%s_pop_mean" % name)
+                pop_variance = tf.compat.v1.get_variable(shape=c, initializer=tf.ones_initializer, trainable=True,
+                                                         name="%s_pop_variance" % name)
 
         if kwargs["training"] == True:
             average_mean, average_varance = tf.compat.v1.nn.moments(args[0], axes=[0, 1, 2], keep_dims=False, name=name)
@@ -758,19 +765,16 @@ class TurboBASE(object):
         return x
 
     def ConvBlock(self, x, in_channels, out_channels, kernel_size, stride=1, name="ConvBlock",
-                  BN=True, use_bias=True, padding=True, act_type="relu",
-                  FUSE_BN=False):
+                  BN=True, use_bias=True, padding=True, act_type="relu"):
 
         if padding:
             pdsz = kernel_size // 2
             x = tf.pad(x, [[0, 0], [pdsz, pdsz], [pdsz, pdsz], [0, 0]], name="pad")
 
-        if (not self.istrain) and FUSE_BN and BN:
+        if (not self.istrain) and self.FUSE_BN and BN:
             return self.ConvBlock_FuseBN_with_jsonParams(x, in_channels, out_channels, kernel_size, stride=stride,
                                                          name=name, use_bias=use_bias, act_type=act_type)
-        # elif (not self.istrain) and FUSE_BN and (not BN):
-        #     return self.ConvBlock_with_jsonParams(x, in_channels, out_channels, kernel_size, stride=stride,
-        #                                           name=name, use_bias=use_bias, act_type=act_type)
+
         weight = self.get_weight(kernel_size=kernel_size, in_channels=in_channels,
                                         out_channels=out_channels, name="%s_w"%name)
 
@@ -793,7 +797,7 @@ class TurboBASE(object):
         b, h, w, c = x.get_shape().as_list()
         out_shape = [b, h * self.scale, w * self.scale, out_channels]
 
-        if (not self.istrain) and FUSE_BN and BN:
+        if (not self.istrain) and self.FUSE_BN and BN:
             return self.DeConvBlock_FuseBN_with_jsonParams(x, in_channels, out_shape, kernel_size, stride=stride,
                                                            name=name, use_bias=use_bias, act_type=act_type)
         weight = self.get_weight(kernel_size=kernel_size, in_channels=out_channels,
@@ -817,13 +821,12 @@ class TurboBASE(object):
         return NotImplementedError
 
     def DepthWise_Conv(self, x, in_channels, channel_multiplier, kernel_size, stride=1, name="DepthWise_Conv",
-                       use_bias=True, BN=True, padding=True, act_type="relu",
-                       FUSE_BN=False):
+                       use_bias=True, BN=True, padding=True, act_type="relu"):
         if padding:
             pdsz = kernel_size // 2
             x = tf.pad(x, [[0, 0], [pdsz, pdsz], [pdsz, pdsz], [0, 0]], name="pad")
 
-        if (not self.istrain) and FUSE_BN and BN:
+        if (not self.istrain) and self.FUSE_BN and BN:
             return self.DepthWise_FuseBN_with_jsonParams(x, in_channels, channel_multiplier, kernel_size, stride=stride,
                                                          name=name, use_bias=use_bias, act_type=act_type)
         weight = self.get_weight(kernel_size=kernel_size, in_channels=in_channels,
@@ -845,29 +848,24 @@ class TurboBASE(object):
         return x
 
     def BottleNeck(self, inputs, out_channels, kernel_size, stride, exp_size,
-                   padding=True, act_type="hswish", shortcut=True, name="bottleneck",
-                   FUSE_BN=False):
+                   padding=True, act_type="hswish", shortcut=True, name="bottleneck"):
         _, h, w, c = inputs.get_shape().as_list()
         x = self.ConvBlock(inputs, c, exp_size, kernel_size=1, stride=1, use_bias=True,
-                           BN=True, padding=False, act_type=act_type, name="%s_Conv1x1" % name,
-                           FUSE_BN=FUSE_BN)  # 1*1*i*64*i*64
+                           BN=True, padding=False, act_type=act_type, name="%s_Conv1x1" % name)  # 1*1*i*64*i*64
 
         x = self.DepthWise_Conv(x, in_channels=exp_size, channel_multiplier=1, kernel_size=kernel_size,
                                 stride=stride, BN=True, use_bias=False, padding=padding, act_type=act_type,
-                                name="DWC_%s" % name,
-                                FUSE_BN=True)
-        if "bottleneck128_2" in name:
-            self.x = tf.identity(x)
+                                name="DWC_%s" % name)
+        # if "bottleneck128_2" in name:
+        #     self.x = tf.identity(x)
         x = self.ConvBlock(x, in_channels=exp_size, out_channels=out_channels, kernel_size=1, stride=1,
-                           use_bias=True, BN=True, padding=False, act_type="linear", name="%s_last" % name,
-                           FUSE_BN=FUSE_BN)
+                           use_bias=True, BN=True, padding=False, act_type="linear", name="%s_last" % name)
         if shortcut:
             if c == out_channels and stride == 1:
                 x += inputs
             elif c != out_channels and stride == 1:
                 inputs = self.ConvBlock(inputs, c, out_channels, kernel_size=1, stride=1,
-                                        BN=True, use_bias=True, padding=False, act_type="linear", name="%s_conv" % name,
-                                        FUSE_BN=FUSE_BN)
+                                        BN=True, use_bias=True, padding=False, act_type="linear", name="%s_conv" % name)
                 x += inputs
             else:
                 Warning('stride = %d cannot shortcut, RESET shortcut False' % stride)
@@ -1000,7 +998,7 @@ class TurboBASE(object):
         mean = self.TurboParams[mean_name]["value"]
         # print(mean)
         variance = self.TurboParams[variance_name]["value"]
-        esp = 0.001  # 0.0010000000474974513
+        esp = 1e-5  # 0.0010000000474974513
 
         fused_weight = self.fuse_w(weight, gama, variance, esp=esp)
         # warp_weight = self.cut_weight(fused_weight, percent=0.4)
@@ -1032,7 +1030,7 @@ class TurboBASE(object):
         beta = self.TurboParams[beta_name]["value"]
         mean = self.TurboParams[mean_name]["value"]
         variance = self.TurboParams[variance_name]["value"]
-        esp = 0.001  # 0.0010000000474974513
+        esp = 0.00001  # 0.0010000000474974513
 
         fused_weight = self.depwise_fuse_w(weight, gama, variance, esp=esp)
         # warp_weight = self.cut_weight(fused_weight, percent=0.4)
@@ -1052,9 +1050,6 @@ class TurboBASE(object):
             bias_var1 = tf.compat.v1.Variable(initial_value=bias, name="%s_b1" % name)
             x = tf.compat.v1.nn.bias_add(x, bias_var1)
 
-        # else:
-        #     bias = np.zeros(shape=self.TurboParams[w_name]["shape"][3], dtype=np.float32)
-        # fused_bias = self.depwise_fuse_b(bias, gama, beta, mean, variance, esp=esp)
         x = self.activation(x, act_type=act_type)
         return x
 
@@ -1097,12 +1092,13 @@ class TurboBASE(object):
         graph_io.write_graph(frozen, dstPath, dstname, as_text=False)
 
     def save(self, sess, name):
-        import json
+        # import json
         weights = dict()
         vars_list = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES)
-        for var in vars_list:
+        params = sess.run(vars_list)
+        for var,value in zip(vars_list, params):
             weight = dict()
-            value = sess.run(var)
+            # value = sess.run(var)
             # print(var.name, var.shape)
             # weight["node_name"] = var.name
             weight["value"] = value.tolist()

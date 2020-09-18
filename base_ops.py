@@ -317,3 +317,72 @@ def BottleNeck( inputs, out_channels, kernel_size, stride, exp_size,
         else:
             Warning('stride = %d cannot shortcut, RESET shortcut False' % stride)
     return activation(x, act_type=act_type)
+
+if __name__ == '__main__':
+    import numpy as np
+
+    def ConvBlock_FuseBN_with_jsonParams(x, name="fuse_bn"):
+        # weight = np.arange(0, 54).reshape([3, 3, 2, 3])
+        weight = np.ones([3,3,1,3], np.float)
+        gama = np.array([1, 2, 3],np.float)
+        beta = np.array([1, 2, 3], np.float)
+        mean = np.array([2, 3, 4], np.float)
+        variance = np.array([3, 4, 5], np.float)
+        esp = 1e-5  # 0.0010000000474974513
+
+        channel = weight.shape[3]
+        fused_weight = np.zeros_like(weight)
+        for i in range(channel):
+            fused_weight[..., i] = weight[..., i] * gama[i] / np.sqrt(variance[i] + esp)
+        # fused_weight = self.fuse_w(weight, gama, variance, esp=esp)
+        weight_var = tf.compat.v1.Variable(initial_value=fused_weight, dtype=tf.float32, name="%s_w" % name)
+        x = tf.compat.v1.nn.conv2d(x, filter=weight_var, strides=[1, 1, 1, 1], padding="VALID")
+        bias = np.zeros(shape=[3], dtype=np.float32)
+        fused_bias = gama * (bias - mean) / np.sqrt(variance + esp) + beta
+        bias_var0 = tf.compat.v1.Variable(initial_value=fused_bias, dtype=tf.float32, name="%s_b0" % name)
+        x = tf.compat.v1.nn.bias_add(x, bias_var0)
+
+        # print(fused_bias)
+
+        # if use_bias:
+        #     bias_name = "%s_b" % name
+        #     bias_ = self.TurboParams[bias_name]["value"]
+        #     bias_var1 = tf.compat.v1.Variable(initial_value=bias_, name="%s_b1" % name)
+        #     x = tf.compat.v1.nn.bias_add(x, bias_var1)
+        # x = self.activation(x, act_type=act_type)
+        return x
+
+    def ConvBlock_(x, name="conv"):
+        # weight = np.arange(0, 54).reshape([3,3,2,3])
+        weight = np.ones([3,3,1,3], np.float)
+        gama = np.array([1, 2, 3],np.float)
+        beta = np.array([1, 2, 3], np.float)
+        mean = np.array([2, 3, 4], np.float)
+        variance = np.array([3, 4, 5], np.float)
+        esp = 1e-5  # 0.0010000000474974513
+
+        weight_var = tf.compat.v1.Variable(initial_value=weight, dtype=tf.float32, name="%s_w" % name)
+        gama_var = tf.compat.v1.Variable(initial_value=gama, dtype=tf.float32, name="%s_gama" % name)
+        beta_var = tf.compat.v1.Variable(initial_value=beta, dtype=tf.float32, name="%s_beta" % name)
+        mean_var = tf.compat.v1.Variable(initial_value=mean, dtype=tf.float32, name="%s_mean" % name)
+        variance_var = tf.compat.v1.Variable(initial_value=variance, dtype=tf.float32, name="%s_variance" % name)
+
+        x = tf.compat.v1.nn.conv2d(x, filter=weight_var, strides=[1, 1, 1, 1], padding="VALID")
+
+        x = tf.compat.v1.nn.batch_normalization(x, mean_var, variance_var, beta_var, gama_var, esp)
+
+        return x
+    g = tf.Graph()
+    with g.as_default():
+        sess = tf.compat.v1.Session()
+        x = tf.compat.v1.ones(shape=[1,5,5,1])
+        fuse_bn = ConvBlock_FuseBN_with_jsonParams(x)
+        nofuse = ConvBlock_(x)# 这个是标准答案，说明fusebn有问题
+
+        sess.run(tf.compat.v1.global_variables_initializer())
+
+        a, b = sess.run([fuse_bn, nofuse])
+
+        print(a)
+        print(b)
+        print(a-b)
