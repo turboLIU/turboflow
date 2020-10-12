@@ -792,28 +792,31 @@ class TurboBASE(object):
         x = self.activation(x, act_type=act_type)
         return x
 
-    def DeConvBlock(self, x, in_channels, out_channels, kernel_size, stride=1, name="DeConvBlock",
-                    BN=True, use_bias=True, padding="VALID", act_type="relu"):
+    def DeConvBlock(self, x, in_channels, out_channels, kernel_size, stride=1, scale=2, name="DeConvBlock",
+                    BN=True, use_bias=True, padding=False, act_type="relu"):
         b, h, w, c = x.get_shape().as_list()
-        out_shape = [b, h * self.scale, w * self.scale, out_channels]
+        out_shape = [b, h * scale, w * scale, out_channels]
+        if padding:
+            pdsz = kernel_size // 2
+            x = tf.pad(x, [[0, 0], [pdsz, pdsz], [pdsz, pdsz], [0, 0]], name="pad")
 
         if (not self.istrain) and self.FUSE_BN and BN:
             return self.DeConvBlock_FuseBN_with_jsonParams(x, in_channels, out_shape, kernel_size, stride=stride,
                                                            name=name, use_bias=use_bias, act_type=act_type)
         weight = self.get_weight(kernel_size=kernel_size, in_channels=out_channels,
                                         out_channels=in_channels, name="%s_w"%name)
-        x = tf.nn.conv2d_transpose(x, filter=weight, output_shape=out_shape,
-                                   strides=[1, stride, stride, 1], padding=padding)
+        x = tf.compat.v1.nn.conv2d_transpose(x, filter=weight, output_shape=out_shape,
+                                   strides=[1, stride, stride, 1], padding="VALID")
         if BN:
             if self.BN_type == "BN":
-                x = self.batch_norm(x, training=self.istrain)
+                x = self.batch_norm(x, training=self.istrain, name="%s_BN"%name)
             elif self.BN_type == "IN":
                 x = self.instance_norm(x, name="%s_IN" % name, training=self.istrain)
             else:
                 raise NotImplementedError('[ERROR] BN type [%s] is not implemented!' % self.BN_type)
         if use_bias:
             bias = self.get_bias(out_channels=in_channels, name="%s_b"%name)
-            x = tf.nn.bias_add(x, bias)
+            x = tf.compat.v1.nn.bias_add(x, bias)
         x = self.activation(x, act_type=act_type)
         return x
 
@@ -1064,7 +1067,7 @@ class TurboBASE(object):
         beta = self.TurboParams[beta_name]["value"]
         mean = self.TurboParams[mean_name]["value"]
         variance = self.TurboParams[variance_name]["value"]
-        esp = 0.001
+        esp = 0.00001
 
         fused_weight = self.depwise_fuse_w(weight, gama, variance, esp=esp)
         # warp_weight = self.cut_weight(fused_weight, percent=0.0)
@@ -1072,15 +1075,17 @@ class TurboBASE(object):
 
         x = tf.compat.v1.nn.conv2d_transpose(x, filter=weight_var, output_shape=out_shape,
                                              strides=[1, stride, stride, 1], padding="VALID")
+
+        bias = np.zeros(shape=self.TurboParams[w_name]["shape"][3], dtype=np.float32)
+        fused_bias = self.fuse_b(bias, gama, beta, mean, variance, esp=esp)
+        bias_var0 = tf.compat.v1.Variable(initial_value=fused_bias, dtype=tf.float32, name="%s_b0" % name)
+
+        x = tf.compat.v1.nn.bias_add(x, bias_var0)
         if use_bias:
             bias_name = "%s_b" % name
             bias = self.TurboParams[bias_name]["value"]
-            bias_var = tf.compat.v1.Variable(initial_value=bias, name="%s_b" % name)
-            x = tf.compat.v1.nn.bias_add(x, bias_var)
-        # else:
-        #     bias = np.zeros(shape=self.TurboParams[weight_name]["shape"][2], dtype=np.float32) # 不确定是inchannel还是outchannel
-        # fused_bias = self.fuse_b(bias, gama, beta, mean, variance, esp=esp)
-
+            bias_var1 = tf.compat.v1.Variable(initial_value=bias, name="%s_b1" % name)
+            x = tf.compat.v1.nn.bias_add(x, bias_var1)
         x = self.activation(x, act_type=act_type)
         return x
 
