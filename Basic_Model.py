@@ -1089,6 +1089,14 @@ class TurboBASE(object):
         x = self.activation(x, act_type=act_type)
         return x
 
+    def get_lr_value(self, ep):
+        ex = 0
+        for i in self.cfg.lr_steps:
+            if ep > i:
+                ex += 1
+        lr = self.cfg.learning_rate * (self.cfg.lr_gama ** ex)
+        return lr
+
     def save_pb_with_fuseBN(self, sess, outnodes, dstPath, dstname):
         sess.run(tf.compat.v1.global_variables_initializer())
         # saver.save(sess, "./centerface_onnx")
