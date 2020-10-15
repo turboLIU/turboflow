@@ -575,6 +575,7 @@ class TurboBASE(object):
             self.FUSE_BN = False
         self.params_count = 0
         self.gpu_count = 0
+        self.lrplaceholder = tf.compat.v1.placeholder(dtype=tf.float32, name="learningRate")
 
     def get_latest_count(self, path):
         names = os.listdir(path)
