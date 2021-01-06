@@ -980,6 +980,8 @@ class TurboBASE(object):
         return w.copy()
 
     def fuse_b(self, b, gama, beta, mean, variance, esp):
+        ##  test beta
+        # beta1 = np.zeros_like(beta)
         return gama * (b - mean) / np.sqrt(variance + esp) + beta
 
     def depwise_fuse_w(self, w, gama, variance, esp):
@@ -1090,6 +1092,17 @@ class TurboBASE(object):
         x = self.activation(x, act_type=act_type)
         return x
 
+    def get_lr_WarmUpValue(self, step, stride):
+        init_lr = self.cfg.learning_rate
+        end = self.cfg.lr_steps[0]
+        total_step = end*stride
+        lr = step*init_lr/total_step + 1e-7
+        return lr
+
+    def get_lr_CosValue(self, ep, epoch):
+        lr = 0.5 * (1 + np.cos(ep * np.pi / epoch)) * self.cfg.learning_rate
+        return lr
+
     def get_lr_value(self, ep):
         ex = 0
         for i in self.cfg.lr_steps:
@@ -1104,6 +1117,24 @@ class TurboBASE(object):
         frozen = tf.compat.v1.graph_util.convert_variables_to_constants(sess, sess.graph_def,
                                                                         outnodes)  # ,["heatmap","538","539","540"]["heatmap", "scale", "offset", "landmark"]
         graph_io.write_graph(frozen, dstPath, dstname, as_text=False)
+
+    def pb2onnx(self, pbmodel, inputs, outputs, onnxmodel):
+        '''
+        python - m tf2onnx.convert \
+        --input pbmodel \
+        --inputs Placeholder:0 \
+        --outputs Sigmoid:0, Sigmoid_1:0, Exp:0 \
+        --output ./centerhand_288x288f3.onnx
+        '''
+        pass
+
+    def onnx2ncnn(self):
+        '''
+        use ncnn--tools--onnx2ncnn
+        some ops should be attention
+        e.g permute, deconv
+        '''
+        pass
 
     def save(self, sess, name):
         # import json
@@ -1123,6 +1154,47 @@ class TurboBASE(object):
         file = json.dumps(weights)
         f.write(file)
         f.close()
+
+    def save_with_graph(self, sess, name):
+        weights = dict()
+        vars_list = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES)
+        params = sess.run(vars_list)
+        for var,value in zip(vars_list, params):
+            weight = dict()
+            # value = sess.run(var)
+            # print(var.name, var.shape)
+            # weight["node_name"] = var.name
+            weight["value"] = value.tolist()
+            weight["shape"] = list(value.shape)
+            weight["dtype"] = str(value.dtype)
+            weights[var.name] = weight
+        f = open(name, "w")
+        file = json.dumps(weights)
+        f.write(file)
+        f.close()
+
+    def structure_pruning_by_gama(self, prob=0.2, cfgname="cfg.prune"):
+        gamas = []
+        f = open(cfgname, "w+")
+        for key, value in self.TurboParams.items():
+            if "BN_gama" in key:
+                gamas += list(value["value"])
+        gamas.sort()
+        idx = int(round(prob * len(gamas)))
+        threshold = gamas[idx]
+        for key , value in self.TurboParams.items():
+            if "BN_gama" in key:
+                indexs = np.where(self.TurboParams[key]["value"] < threshold)
+                self.TurboParams[key]["value"][indexs] = 0
+                # self.TurboParams[key]["value"] = \
+                #     np.where(self.TurboParams[key]["value"]<threshold, 0, self.TurboParams[key]["value"])
+                ol = len(self.TurboParams[key]["value"])
+                nl = ol - len(indexs)
+                info = "%s:%d->%d\n"%(key, ol, nl)
+                f.write(info)
+        f.close()
+
+
 
 if __name__ == '__main__':
     pb = r'E:\Object_Detection\Face_Detection\PFLD-master\PFLD-tiny-bn.pb'
