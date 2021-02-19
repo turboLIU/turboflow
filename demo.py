@@ -8,9 +8,9 @@ import os
 import tensorflow as tf
 from Basic_Model import TurboBASE
 
-class PointsNet(TurboBASE):
+class demoNet(TurboBASE):
     def __init__(self, cfg):
-        super(PointsNet, self).__init__(cfg)
+        super(demoNet, self).__init__(cfg)
 
         self.parse_cfg(cfg)
 
