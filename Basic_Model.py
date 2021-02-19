@@ -728,12 +728,6 @@ class TurboBASE(object):
         decay = 0.99
         epsilon = 1e-3
         shape = [b, 1, 1, c]
-        # gama = tf.get_variable(shape=shape, initializer=tf.ones_initializer, name="%s_gama" % name)
-        # beta = tf.get_variable(shape=shape, initializer=tf.zeros_initializer, name="%s_beta" % name)
-        # pop_mean = tf.get_variable(shape=shape, initializer=tf.zeros_initializer, trainable=True,
-        #                            name="%s_pop_mean" % name)
-        # pop_variance = tf.get_variable(shape=shape, initializer=tf.ones_initializer, trainable=True,
-        #                                name="%s_pop_variance" % name)
         if self.load_premodel:
             gama = self.load_param("%s_gama"%name)
             beta = self.load_param("%s_beta"%name)

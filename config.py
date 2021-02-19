@@ -8,33 +8,26 @@ class config:
         self.ngpu = 1
         self.epoch = 1000
 
-        # self.checkpoint_dir = "./jmodel"
-        # if not os.path.exists(self.checkpoint_dir):
-        #     os.mkdir(self.checkpoint_dir)
-        # self.log_dir = "./log"
-        # if not os.path.exists(self.log_dir):
-        #     os.mkdir(self.log_dir)
-        # self.result = "./result"
-        # if not os.path.exists(self.result):
-        #     os.mkdir(self.result)
+        self.checkpoint_dir = "./jmodel"
+        if not os.path.exists(self.checkpoint_dir):
+            os.mkdir(self.checkpoint_dir)
+        self.log_dir = "./log"
+        if not os.path.exists(self.log_dir):
+            os.mkdir(self.log_dir)
+        self.result = "./result"
+        if not os.path.exists(self.result):
+            os.mkdir(self.result)
 
 
 
 class config_net(config):
     def __init__(self):
         super(config_net, self).__init__()
-        self.dsize = 640
+        self.dsize = 256
         self.downScale = 4
-        self.minSize = 0# 像素个数
         self.c_dim = 3
-        self.clsNum = 1
+        self.clsNum = 10
         self.channelSize = 3
-        self.heat_weight = 1
-        self.off_weight = 1
-        self.size_weight = 0.1
-        self.landmark_weight = 0
-        self.landmarknum = 98
-        self.heatmap = "CenterNet" # Turbo, CenterNet
 
 
         self.subBatchSize = 1
@@ -56,13 +49,13 @@ class config_net(config):
         self.mean = 0.
         self.variance = 255.0
 
-        # self.model = "CenterNet"  # "mobileSmall" or "mobileLarge"
-        # self.model_logdir = "%s/%s" % (self.log_dir, self.model)
-        # if not os.path.exists(self.model_logdir):
-        #     os.mkdir(self.model_logdir)
-        # self.model_result = "%s/%s" % (self.result, self.model)
-        # if not os.path.exists(self.model_result):
-        #     os.mkdir(self.model_result)
+        self.model = "AlexNet"  # named by yourself
+        self.model_logdir = "%s/%s" % (self.log_dir, self.model)
+        if not os.path.exists(self.model_logdir):
+            os.mkdir(self.model_logdir)
+        self.model_result = "%s/%s" % (self.result, self.model)
+        if not os.path.exists(self.model_result):
+            os.mkdir(self.model_result)
 
         # augment params
         self.perspective = 0.5
